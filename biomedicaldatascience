@@ -1,0 +1,105 @@
+random_codons = ['TTA', 'TGT', 'TCT', 'AAT', 'GTA', 'TGT', 'GGG', 'TGT', 'AAG', 'GGA', 'CCT', 'CGC', 'CTC', 'AAT', 'TGT', 'TAA']
+stop_codons = ['TAG', 'TAA', 'TGA']
+def code(sequence):
+    trans = ""
+    for i in range(0, len(seq), 3):
+        codon = sequence[i:i+3]
+        if codon in stop_codons:
+            trans += "!"
+        else:
+            trans += "."
+    return trans
+    
+def parse_interactome(filename):
+    file_in = open(filename, "r")
+    reads = file_in.readlines()
+    parsed = []
+    for i in range(len(reads)):
+        read=str(reads[i])
+        firstslash = read.find("\t")
+        if i == len(reads)-1:
+            firstone = read[:firstslash]
+            secondone = read[firstslash:][1:]
+            parsed.append(tuple(sorted((firstone, secondone))))
+        else:
+            firstone = read[:firstslash]
+            secondone = read[firstslash:][1:-1]
+            parsed.append(tuple(sorted((firstone, secondone))))
+    return parsed
+    
+def uniqueNodes(network):
+    nodes=[]
+    for i in SC_PPI_B:
+        if i[0] not in nodes:
+            nodes.append(i[0])
+        if i[1] not in nodes:
+            nodes.append(i[1])
+    return nodes
+  
+def degreesOfnodes(network):
+    degrees=[]
+    nodes = uniqueNodes(SC_PPI_B) #get list of unique nodes
+    ui = findUniqueinteractions(SC_PPI_B)
+    for i in nodes: #go through list of nodes
+        counter=0 #beginning of previous for loop, before iterating through interactions, add counter
+        for j in ui: #for each node, check against list of unique interactions
+            if i in j: #if node in an interaction, add one to number counter
+                counter+=1
+        onetup= (i, counter) #once finishing one node against all interactions, create tuple with (node, # edges)
+        degrees.append(onetup) #append the tuple to degrees list
+    degrees.sort(reverse = True, key = lambda x: x[1]) #once list created, sort it by degree
+    return degrees
+    
+def DNA2AA(seq, codon_mapping = codon_mapping): # Add the requested optional parameter
+    trans1= ""
+    for i in range(0, len(seq), 3):
+        codon = seq[i:i+3]
+        trans1 += codon_mapping[codon]
+    trans2= ""
+    for i in range(1, len(seq)-2, 3):
+        codon = seq[i:i+3]
+        trans2 += codon_mapping[codon]
+    trans3= ""
+    for i in range(2, len(seq)-1, 3):
+        codon = seq[i:i+3]
+        trans3 += codon_mapping[codon]
+    trans1+=" "#needed these spaces at end because .find() calls below didn't find a * in one string, so when tried to index it to end the shortened list, it returned one letter short. the space allows that last letter in list to show up in result
+    trans2+=" "
+    trans3+=" "
+    fa1 = trans1.find("M")
+    fa2 = trans2.find("M")
+    fa3 = trans3.find("M")
+    fo1 = trans1.find("*")
+    fo2 = trans2.find("*")
+    fo3 = trans3.find("*")
+    trans1 = trans1[fa1:fo1+1]
+    trans2 = trans2[fa2:fo2+1]
+    trans3 = trans3[fa3:fo3+1]
+    translist = [trans1, trans2, trans3]
+    translist.sort(key=len)
+    return translist
+    
+import os
+os.system("makeblastdb -in "+ref_fasta+" -dbtype 'nucl'")
+os.system("blastn -query " + query_fasta + " -db " + ref_fasta + " -out blast_sanger_to_ref -outfmt 6")
+
+
+import numpy as np
+import pandas as pd
+def parseblast(file, header=("qseqid", "sseqid", "pident", "length", "mismatch", 
+                           "gapopen", "qstart", "qend", "sstart", "send", 
+                           "evalue", "bitscore")):
+    return pd.read_csv(file, sep="\t", header=None, names=header)
+    
+variant_counts_short = {key:val for key, val in variant_counts.items() if val > 5}
+reftrans2 = translate(Aligned_ref) 
+refreplace2= list(Aligned_ref)
+for i in variant_counts_short:
+    startwith = i[0]
+    pos = int(i[1:-1])-1
+    replacewith = i[-1]
+    refreplace2[pos] = replacewith
+refreplace2 = "".join(refreplace2)
+refreplacetrans2 = translate(refreplace2)
+end = refreplacetrans2.find("*")
+refreplacetrans2 = refreplacetrans[:end]
