@@ -1,0 +1,93 @@
+#python system call to run Bowtie
+os.system("bowtie2 -x hg19 -U "+DNA_reads+" -S HeLa_STARRseq_pDNA.sam")
+os.system("bowtie2 -x hg19 -U "+RNA_reads+" -S HeLa_STARRseq_pRNA.sam")
+
+def overlap(s1, e1, s2, e2):
+    return e1 >= s2 and e2 >= s1
+def count_overlaps(sam_filename, ref_chr, region_start, region_end):
+    parsed = parse_sam(sam_filename)
+    count = 0
+    relevantreads = []
+    for read in parsed: 
+        if read['RNAME'] == ref_chr:
+            relevantreads.append(read)
+    for rread in relevantreads:
+        if rread['FLAG'] == 0: 
+            startread = rread['POS']
+            endread = rread['POS'] + 600
+        elif rread['FLAG'] == 16:
+            startread = rread['POS'] - 600
+            endread = rread['POS']
+        if overlap(startread, endread, region_start, region_end):
+            count += 1
+    return count
+    
+DNA_Total = count_overlaps(DNA_sam, ref_chr, start_total, end_total) 
+DNA_Correct = count_overlaps(DNA_sam, ref_chr, start_correct, end_correct) 
+RNA_Total = count_overlaps(RNA_sam, ref_chr, start_total, end_total) 
+RNA_Correct = count_overlaps(RNA_sam, ref_chr, start_correct, end_correct) 
+per_DNA_Correct = (DNA_Correct/DNA_Total)*100 
+per_RNA_Correct = (RNA_Correct/RNA_Total)*100
+baseline_ratio = RNA_Correct/DNA_Correct
+
+def count_unique_overlaps(sam_filename, ref_chr, region_start, region_end):
+    parsed = parse_sam(sam_filename)
+    count = 0
+    relevantreads = []
+    for read in parsed: 
+        if read['RNAME'] == ref_chr:
+            relevantreads.append(read)
+    relreadsnew=[]
+    count = 0
+    for i in relevantreads:
+        flag1 = i['FLAG']
+        pos1 = i['POS']
+        for j in relevantreads:
+            if i!=j:
+                if i['FLAG']==j['FLAG'] and i['POS']==j['POS']:
+                    if i not in relreadsnew:
+                        relreadsnew.append(i)
+                else:
+                    if j not in relreadsnew:
+                        relreadsnew.append(j)
+    for rread in relreadsnew:
+        if rread['FLAG'] == 0: 
+            startread = rread['POS']
+            endread = rread['POS'] + 600
+        if rread['FLAG'] == 16:
+            startread = rread['POS'] - 600
+            endread = rread['POS']
+        if overlap(startread, endread, region_start, region_end):
+            count += 1
+    return count
+    
+ratiolistunique = []
+for i in regions: 
+    cr = i[0]
+    start = i[1]
+    end = i[2]
+    DNA_Correct = count_unique_overlaps(DNA_sam, cr, start, end)
+    RNA_Correct = count_unique_overlaps(RNA_sam, cr, start, end)
+    ratiolistunique.append(RNA_Correct/DNA_Correct)
+ratios_unique = ratiolistunique
+
+enrich = {}
+for i in range(start_correct, end_correct, 600):
+    startwindow1 = i
+    endwindow1 = i+600
+    startwindow2 = i+300
+    endwindow2 = i+900
+    print(startwindow1, endwindow1, startwindow2, endwindow2)
+    DNA_Correct1 = count_unique_overlaps(DNA_sam, ref_chr, startwindow1, endwindow1)
+    RNA_Correct1 = count_unique_overlaps(RNA_sam, ref_chr, startwindow1, endwindow1)
+    DNA_Correct2 = count_unique_overlaps(DNA_sam, ref_chr, startwindow2, endwindow2)
+    RNA_Correct2 = count_unique_overlaps(RNA_sam, ref_chr, startwindow2, endwindow2)
+    thres1 = RNA_Correct1/DNA_Correct1
+    thres2 = RNA_Correct2/DNA_Correct2
+    enrich[tuple([ref_chr, startwindow1, endwindow1])] = thres1
+    enrich[tuple([ref_chr, startwindow2, endwindow2])] = thres2
+enrichsort = sorted(enrich.items(), key=lambda x: x[1])
+enrichsort.reverse()
+tops = []
+for i in range(10):
+    tops.append(enrichsort[i][0])
