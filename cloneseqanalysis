@@ -1,0 +1,249 @@
+def parse_sam_row(row):
+    parsing = str(row)
+    answerb = {}
+    keylist = ['QNAME', 'FLAG', 'RNAME', 'POS', 'MAPQ', 'CIGAR', 'RNEXT', 'PNEXT', 'TLEN', 'SEQ', 'QUAL']
+    for i in range(len(keylist)):
+        index = parsing.find('\t')
+        answerb[keylist[i]] = parsing[:index]
+        parsing = parsing[index+1:]
+    answerb['FLAG'] = int(answerb['FLAG'])
+    answerb['POS'] = int(answerb['POS'])
+    answerb['MAPQ'] = int(answerb['MAPQ'])
+    answerb['PNEXT'] = int(answerb['PNEXT'])
+    answerb['TLEN'] = int(answerb['TLEN'])
+    return answerb
+    
+import pandas as pd
+def parse_sam(filename, as_df=False, header=["QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQ", "QUAL"]):
+    if(as_df):
+        return pd.DataFrame.from_dict(sam_dict)[header]
+    file_in = open(filename, "r")
+    reads = file_in.readlines()
+    for r in range(len(reads)):
+        first = reads[r][0]
+        if first != "@":
+            index = r
+            break
+    reads = reads[index:]
+    answerlist=[]
+    for j in reads:
+        row1c = j
+        answer = {}
+        for i in range(len(keylist)):
+            index = row1c.find('\t')
+            answer[keylist[i]] = row1c[:index]
+            row1c = row1c[index+1:]    
+        answer['FLAG'] = int(answer['FLAG'])
+        answer['POS'] = int(answer['POS'])
+        answer['MAPQ'] = int(answer['MAPQ'])
+        answer['PNEXT'] = int(answer['PNEXT'])
+        answer['TLEN'] = int(answer['TLEN'])
+        answerlist.append(answer)
+    return answerlist
+    
+import re
+cigar = sam_dict['CIGAR']
+split = re.findall('(\d+)([MIDNHSP=X])', cigar)
+split1=[]
+for i in range(len(split)):
+    number = split[i][0]
+    letter = split[i][1]
+    split1.append((int(number), letter))
+codes = {}
+codes['M']=(True, True); codes['I']=(True, False); codes['D']=(False, True); codes['N']=(False, True)
+codes['S']=(True, False); codes['H']=(False, False); codes['P']=(False, False); codes['=']=(True, True)
+codes['X']=(True, True)
+
+qseq = sam_dict['SEQ']
+cigar = sam_dict['CIGAR']
+pos = sam_dict['POS']
+name = sam_dict['QNAME']
+name = name[:name.find('.')]
+file_in = open(ref_fasta, "r")
+reads = file_in.readlines()
+for i in range(0, len(reads), 2):
+    if name in reads[i]:
+        refseq = reads[i+1]
+refseq = refseq[pos-1:]
+refcount = 0
+qcount = 1
+index = 0
+for i in split_cigar:
+    if i[1] == "M":
+        index += i[0]
+    if i[1] == 'D':
+        qseq = qseq[:index] +'-'+ qseq[index:]
+        index += i[0]
+    if i[1] == 'I':
+        refseq = refseq[:index] +'-'+ refseq[index:]
+        index += i[0]  
+    if i[1] == 'S':
+        refseqfront = refseq[:index]
+        refseqback = refseq[index:]
+        dashes = '-'*i[0]
+        final = refseqfront+dashes
+        
+qseq = sam_dict['SEQ']
+cigar = sam_dict['CIGAR']
+pos = sam_dict['POS']
+name = sam_dict['QNAME']
+name = name[:name.find('.')]
+file_in = open(ref_fasta, "r")
+reads = file_in.readlines()
+for i in range(0, len(reads), 2):
+    if name in reads[i]:
+        refseq = reads[i+1]
+refseq = refseq[pos-1:]
+counts={}
+index=0
+posread = 0
+for i in range(len(split_cigar)-1):
+    if split_cigar[i][1]=='M':
+        if i > 0:
+            if split_cigar[i-1][1] == 'I':
+                for j in range(index, index+split_cigar[i][0]):
+                    counts[pos-1+j] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+                    counts[pos-1+j][qseq[j+posread]] += 1
+                index += split_cigar[i][0]
+            else:
+                for j in range(index, index+split_cigar[i][0]):
+                    counts[pos-1+j] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+                    counts[pos-1+j][qseq[j]] += 1
+                index+=split_cigar[i][0]
+        else:
+            for j in range(index, index+split_cigar[i][0]):
+                counts[pos-1+j] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+                counts[pos-1+j][qseq[j]] += 1
+            index+=split_cigar[i][0]
+    if split_cigar[i][1]=='I':
+        for j in range(index, index+split_cigar[i][0]):
+            counts[pos-1+j] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+            counts[pos-1+j][qseq[j]] += 1
+        index += split_cigar[i][0]
+        posread += split_cigar[i][0]
+    if split_cigar[i][1]=='D':
+        for j in range(index, index+split_cigar[i][0]):
+            del counts[pos-2+index]
+single_read_counts = counts
+
+#filtering read counts on quality threshold
+qseq = sam_dict['SEQ']
+cigar = sam_dict['CIGAR']
+pos = sam_dict['POS']
+name = sam_dict['QNAME']
+name = name[:name.find('.')]
+file_in = open(ref_fasta, "r")
+reads = file_in.readlines()
+for i in range(0, len(reads), 2):
+    if name in reads[i]:
+        refseq = reads[i+1]
+refseq = refseq[pos-1:]
+#nucls = {"A": 0, "T": 0, "C": 0, "G":0}
+fcounts = {}
+index = 0
+for i in split_cigar:
+    if i[1] == "M":
+        #print('IN')
+        for j in range(index, index+i[0]):
+            #print(j)
+            if ord(sam_dict['QUAL'][j])-33 >= quality_thresh:
+                fcounts[pos-1+j] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+                fcounts[pos-1+j][refseq[j]] += 1
+        index += i[0]
+single_read_counts_filtered = fcounts # Replace with your final result
+print(fcounts)
+
+for i in range(0, len(reads), 2):
+    if name in reads[i]:
+        refseq = reads[i+1]
+def get_read_counts(sam_lines, quality_thresh=quality_thresh):
+    read_counts={}
+    for i in range(len(sam_lines)):
+        split = re.findall('(\d+)([MIDNHSP=X])', sam_lines[i]['CIGAR'])
+        pos = sam_lines[i]['POS'] - 1
+        qseq = sam_lines[i]['SEQ']
+        qual = sam_lines[i]['QUAL']
+        accum = 0
+        for j in range(len(split)):
+            number = int(split[j][0])
+            letter = split[j][1]
+            if letter == 'M':
+                if j > 0:
+                    accum += int(split[j-1][0])
+                for m in range(number):
+                    if ord(qual[m]) - 33 >= quality_thresh:
+                        if m+pos not in read_counts.keys():
+                            read_counts[m+pos] = {'A': 0, 'T': 0, 'C': 0, 'G':0}
+                            if qseq[m+accum] in ['A', 'T', 'C', 'G']:
+                                read_counts[m+pos][qseq[m+accum]] += 1
+                        else:
+                            if qseq[m+accum] in ['A', 'T', 'C', 'G']:
+                                read_counts[m+pos][qseq[m+accum]] += 1
+    return read_counts
+    
+    #analyzing sam file to find read counts per nucleotide at a relevant gene, the dominant nucleotide at each position, and the average counts at each position
+    
+readsx = get_read_counts(aligned_x)
+print(len(readsx))
+avgs = {"A":0, "T":0, "C":0, "G":0}
+counta=0
+countt=0
+countc=0
+countg=0
+for i in readsx:
+    counta += readsx[i]['A']
+    countt += readsx[i]['T']
+    countc += readsx[i]['C']
+    countg += readsx[i]['G']
+counta /= len(readsx)
+countt /= len(readsx)
+countc /= len(readsx)
+countg /= len(readsx)
+avgs["A"] = counta
+avgs["T"] = countt
+avgs["C"] = countc
+avgs["G"] = countg
+dominant = []
+for i in readsx:
+    top = readsx[i]['A']
+    topnuc = 'A'
+    if readsx[i]['T'] > top:
+        top = readsx[i]['T']
+        topnuc = 'T'
+    if readsx[i]['C'] > top:
+        top = readsx[i]['C']
+        topnuc = 'C'
+    if readsx[i]['G'] > top:
+        top = readsx[i]['G']
+        topnuc = 'G'
+    dominant.append(topnuc)
+read_counts_x = readsx 
+
+#reading file of attempted mutations and determining if they were successful or not based on Clone-Seq data
+
+file_in = open(attempted_muts, "r")
+reads = file_in.readlines()
+readsnew = []
+mutsfinal = []
+mutsatt = []
+for i in range(len(reads)):
+    readsnew.append(reads[i].strip())
+for i in readsnew:
+    gene = i[:i.find('_')]
+    if gene == gene_x:
+        mutsatt.append(i)
+threshold = 1/len(mutsatt)
+for i in mutsatt:
+    tot = i[i.find('_')+1:]
+    #print(tot)
+    nuc = int(tot[1:-1])-1
+    orig = tot[:1]
+    att = tot[-1:]
+    for j in read_counts_x:
+        if nuc == j:
+            potential = read_counts_x[j]
+            total = potential['A']+potential['C']+potential['T']+potential['G']
+            outcome = read_counts_x[j][att]/total
+            if outcome > threshold:
+                mutsfinal.append(i)
+mutants_x = mutsfinal
