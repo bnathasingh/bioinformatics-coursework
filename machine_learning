@@ -1,0 +1,117 @@
+#creating random forest classifier to determine if any testing AA sequence contains an alpha-helix based on training data
+import numpy as np
+import pandas as pd
+orig = pd.read_csv('/home/local/CORNELL/bn243/final/Expasy_AA_Scales.txt', sep = '\t')
+#allfeats = orig.iloc[:, 1:] #removing column with AA letters to make the DF ready for correlation matrix
+corr = orig.iloc[:, 1:].corr() #correlation matrix to see which of expasy scales are highly correlated
+#corr #a correlation matrix of the values of all expasy scales, showing some pairs of features are highly positively or negatively correlated
+
+upper_tri = corr.where(np.triu(np.ones(corr.shape),k=1).astype(np.bool)) #isolating the upper triangle of the corr matrix
+#so individual pair of highly correlated features can be identified (corr table is made of same information in upper and lower triangles)
+to_drop = [column for column in upper_tri.columns if any(abs(upper_tri[column]) > 0.8)] #identifying which features have >0.8 correlation, removing one of 2 from the pair
+drop_corr = orig.drop(to_drop, axis=1) #dropping 1 feature of each highly correlated feauture pair from the original expasy scale
+drop_corr.rename(columns = {'Amino Acid':'AA'}, inplace=True)
+drop_corr_dict = drop_corr.set_index('AA').to_dict() #converting final expasy scale features to dictionary to be able to combine with current Testing_labels data
+
+#manipulating testing labels to combine with filtered expasy scales features
+training = pd.read_csv('/home/local/CORNELL/bn243/final/Training_Labels.txt', sep = '\t')
+for key in drop_corr_dict: 
+    training[key] = training['AA'].map(drop_corr_dict[key]) #adding relevant features to training labels df
+training.fillna(value = 0, inplace = True)
+labels = training.iloc[:, 3] #subsetting labels from training table with features 
+features = training.iloc[:, 4:] #subsetting features from training table with features 
+
+training[training.columns[3:]].corr()['Label'][:] #once the training table is complete with the features added, we can
+#see that features values are not -10<x<10 percent correlated with the labels, except for 'Coil__Deleage_&_Roux, which is -13% correlated with the label'
+
+labels_scatter = training.Label.map({0:'b', 1:'r'}) #setting up labels to be plotted by two features
+training.plot.scatter(x='Coil__Deleage_&_Roux', y='beta_sheet__Deleage_&_Roux', c=labels_scatter) 
+
+import seaborn as sns
+for_heatmap = corr.drop(to_drop, axis = 1)
+for_heatmap = for_heatmap.drop(to_drop, axis = 0)
+#the heatmap of selected features show none are highly correlated (none are dark blue or red)
+sns.heatmap(for_heatmap, vmin=-1, vmax=1,center=0, cmap=sns.diverging_palette(20, 220, n=200),square=True)
+
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.2, random_state=0)
+clf = RandomForestClassifier(n_estimators = 200, warm_start=True) #initializing random forest
+clf.drop_corr_dict = drop_corr_dict
+clf.fit(features_train, labels_train) #fitting random forest with subset of training data from train_test_split
+print("training split accuracy" , np.mean(clf.predict(features_train) == labels_train)) #accuracy of split training set with this model
+print("testing split accuracy" , np.mean(clf.predict(features_test) == labels_test)) #accuracy of split testing set (from training data) with this model
+print("whole training accuracy" , np.mean(clf.predict(training.iloc[:, 4:]) == training.iloc[:, 3])) #accuracy of whole training set with this model
+
+names = training['UniProt'].unique().tolist() #all unique uniprots in training set
+reference = pd.DataFrame(columns = ["UniProt", "Predicted Label"]) #initializing df to save already-calculated features
+for protein in names: #iterating thruogh unique uniprots
+    predict = clf.predict(training[training['UniProt']==protein].iloc[:,4:]) #predicting labels for all features with selected uniprot id
+    uniprotcolumn = [str(protein)] * len(predict-1) #creating list of length of predicted labels for df
+    probs = clf.predict_proba(training[training['UniProt']==protein].iloc[:,4:]) #probabilities of predictions for uniprot id
+    preds = probs[:,1] #subsetting predictions
+    d = {"UniProt":uniprotcolumn, "Predicted Label":list(predict.flat), "Probabilities":preds} #creating df to append to reference
+    reference = reference.append(pd.DataFrame(d)) #appending predicted info for one uniprot to reference
+reference.to_csv('/home/local/CORNELL/bn243/final/saved_features.csv', sep = '\t') #saving calculated features to file
+
+def get_features(self, uniprot):
+    drop_corr_dict = self.drop_corr_dict
+    if uniprot in names:
+        return training[training['UniProt'] == uniprot].iloc[:,4:] #getting features
+    elif uniprot in testing['UniProt'].unique().tolist():
+        for i in range(len(testing)):
+            if testing.iloc[i, 0]==uniprot:
+                for key in drop_corr_dict: 
+                    testing[key] = testing['AA'].map(drop_corr_dict[key])
+        return testing[testing['UniProt'] == uniprot].iloc[:,4:] #getting features
+
+#predict_uniprot function for #7 'Formal Expectations'
+def predict_uniprot(self, uniprot):
+    features = self.get_features(uniprot) #getting features
+    predict = self.predict(features) #getting predictions from these features using model
+    uniprotcolumn = [str(protein)] * len(predict-1) #creating column of uniprot id (all identical) for output
+    probs = self.predict_proba(features)
+    preds = probs[:,1]
+    return pd.DataFrame({"Uniprot":uniprotcolumn, "Predicted Label":predict, 'Probability':preds}) #returning info
+
+def predict_uniprot_proba(uniprot): #written to meet #7 of 'Formal Expectations', although it is repetitive given the above 'predict_uniprot' function
+    features = get_features(uniprot)
+    probs = clf.predict_proba(training[training['UniProt']==protein].iloc[:,4:])
+    preds = probs[:,1]
+    return pd.DataFrame({"Uniprot":uniprotcolumn, 'Probability':preds})
+
+def eval_performance(features, labels):
+    import sklearn.metrics as metrics
+    import matplotlib.pyplot as plt
+    probs = clf.predict_proba(features)
+    preds = probs[:,1]
+    fpr, tpr, threshold = metrics.roc_curve(labels, preds)
+    roc_auc = metrics.auc(fpr, tpr)
+    plt.title('ROC Curve')
+    plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
+    plt.legend(loc = 'lower right')
+    plt.plot([0, 1], [0, 1],'r--')
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.ylabel('True Positive Rate')
+    plt.xlabel('False Positive Rate')
+    print("roc_auc value is:", roc_auc)
+    plt.show()
+    
+clf.predict_uniprot = predict_uniprot #adding predict_uniprot to classifier
+clf.predict_uniprot_proba = predict_uniprot_proba #adding predict_uniprot_proba to classifier
+clf.eval_performance = eval_performance #adding eval_performance to classifier'
+clf.get_features = get_features #adding get_features to classifier
+
+testing = pd.read_csv('/home/local/CORNELL/bn243/final/Testing_Labels.txt', sep = '\t')
+for key in drop_corr_dict: 
+    testing[key] = testing['AA'].map(drop_corr_dict[key])
+testing.fillna(value = 0, inplace = True)
+testing_features = testing.iloc[:,4:]
+testing_labels = testing.iloc[:,3]
+eval_performance(testing_features, testing_labels)
+print("whole testing accuracy" , np.mean(clf.predict(testing_features) == testing_labels)) #accuracy of whole testing set with this model
+
+from joblib import dump, load
+dump(clf, 'final_clf.joblib') 
+
